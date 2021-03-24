@@ -1,12 +1,15 @@
 package vexriscv.demo.smp
 
 import spinal.core._
+import spinal.core.fiber._
 import spinal.lib.bus.bmb._
 import spinal.lib.bus.misc.{AddressMapping, DefaultMapping, SizeMapping}
 import spinal.lib.bus.wishbone.{WishboneConfig, WishboneToBmbGenerator}
+import spinal.lib.generator.GeneratorComponent
 import spinal.lib.sim.SparseMemory
 import vexriscv.demo.smp.VexRiscvSmpClusterGen.vexRiscvConfig
-import vexriscv.plugin.{AesPlugin, DBusCachedPlugin}
+import vexriscv.ip.fpu.{FpuCore, FpuParameter}
+import vexriscv.plugin.{AesPlugin, DBusCachedPlugin, FpuPlugin}
 import vexriscv.plugin.{CryptoZkbPlugin, CryptoZkndPlugin, CryptoZknePlugin, CryptoZknhPlugin, CryptoZksPlugin}
 import vexriscv.plugin.{BitManipBFPOnlyPlugin, BitManipZbaPlugin, BitManipZbbPlugin, BitManipZbbZbpPlugin, BitManipZbcPlugin, BitManipZbe1cyclePlugin, BitManipZbe2cyclesPlugin, BitManipZbfPlugin, BitManipZbpPlugin, BitManipZbrPlugin, BitManipZbsPlugin, BitManipZbtPlugin}
 import vexriscv.plugin.{PackedSIMDBasePlugin, PackedSIMDSlowPlugin, PackedSIMDWidePlugin}
@@ -33,6 +36,34 @@ class VexRiscvLitexSmpCluster(p : VexRiscvLitexSmpClusterParameter) extends VexR
     dBusNonCoherent.bmb -> List(peripheralBridge.bmb)
   )
 
+  val fpuGroups = (cores.reverse.grouped(4)).toList.reverse
+  val fpu = p.cluster.fpu generate { for(group <- fpuGroups) yield new Area{
+    val extraStage = group.size > 2
+
+    val logic = Handle{
+      new FpuCore(
+        portCount = group.size,
+        p =  FpuParameter(
+          withDouble = true,
+          asyncRegFile = false,
+          schedulerM2sPipe = extraStage
+        )
+      )
+    }
+
+    val connect = Handle{
+      for(i <- 0 until group.size;
+          vex = group(i).cpu.logic.cpu;
+          port = logic.io.port(i)) {
+        val plugin = vex.service(classOf[FpuPlugin])
+        plugin.port.cmd.pipelined(m2s = false, s2m = false) >> port.cmd
+        plugin.port.commit.pipelined(m2s = extraStage, s2m = false) >> port.commit
+        plugin.port.completion := port.completion.m2sPipe()
+        plugin.port.rsp << port.rsp
+      }
+    }
+  }}
+
   if(p.cluster.withExclusiveAndInvalidation) interconnect.masters(dBusNonCoherent.bmb).withOutOfOrderDecoder()
 
   if(!p.wishboneMemory) {
@@ -43,7 +74,7 @@ class VexRiscvLitexSmpCluster(p : VexRiscvLitexSmpClusterParameter) extends VexR
   // Coherent DMA interface
   val dma = p.coherentDma generate new Area {
     val bridge = WishboneToBmbGenerator()
-    val wishbone = bridge.produceIo(bridge.logic.io.input)
+    val wishbone = Handle(bridge.logic.io.input.toIo)
     val dataWidth = p.cluster.cpuConfigs.head.find(classOf[DBusCachedPlugin]).get.config.memDataWidth
     bridge.config.load(WishboneConfig(
       addressWidth = 32 - log2Up(dataWidth / 8),
@@ -56,12 +87,17 @@ class VexRiscvLitexSmpCluster(p : VexRiscvLitexSmpClusterParameter) extends VexR
 
   // Interconnect pipelining (FMax)
   for(core <- cores) {
-    interconnect.setPipelining(core.cpu.dBus)(cmdValid = true, cmdReady = true, rspValid = true)
+    interconnect.setPipelining(core.cpu.dBus)(cmdValid = true, cmdReady = true, rspValid = true, invValid = true, ackValid = true, syncValid = true)
     interconnect.setPipelining(core.cpu.iBus)(cmdHalfRate = true, rspValid = true)
     interconnect.setPipelining(iArbiter.bmb)(cmdHalfRate = true, rspValid = true)
   }
+  interconnect.setPipelining(dBusCoherent.bmb)(cmdValid = true, cmdReady = true)
   interconnect.setPipelining(dBusNonCoherent.bmb)(cmdValid = true, cmdReady = true, rspValid = true)
   interconnect.setPipelining(peripheralBridge.bmb)(cmdHalfRate = !p.wishboneMemory, cmdValid = p.wishboneMemory, cmdReady = p.wishboneMemory, rspValid = true)
+  if(!p.wishboneMemory) {
+    interconnect.setPipelining(iBridge.bmb)(cmdHalfRate = true)
+    interconnect.setPipelining(dBridge.bmb)(cmdReady = true)
+  }
 }
 
 
@@ -78,6 +114,7 @@ object VexRiscvLitexSmpClusterCmdGen extends App {
   var wishboneMemory = false
   var outOfOrderDecoder = true
   var aesInstruction = false
+  var fpu = false
   var extensions = Set("I", "M", "A")
   var netlistDirectory = "."
   var netlistName = "VexRiscvLitexSmpCluster"
@@ -98,6 +135,7 @@ object VexRiscvLitexSmpClusterCmdGen extends App {
     opt[String]("extensions") action { (v, c) => extensions = (v.split(",")).toSet }
     opt[String]("out-of-order-decoder") action { (v, c) => outOfOrderDecoder = v.toBoolean  }
     opt[String]("wishbone-memory" ) action { (v, c) => wishboneMemory = v.toBoolean  }
+    opt[String]("fpu" ) action { (v, c) => fpu = v.toBoolean  }
   }.parse(args))
 
   val coherency = coherentDma || cpuCount > 1
@@ -114,7 +152,13 @@ object VexRiscvLitexSmpClusterCmdGen extends App {
           dCacheSize = dCacheSize,
           iCacheWays = iCacheWays,
           dCacheWays = dCacheWays,
-          coherency = coherency
+          coherency = coherency,
+          iBusRelax = true,
+          earlyBranch = true,
+          withFloat = fpu,
+          withDouble = fpu,
+          externalFpu = fpu,
+          loadStoreWidth = if(fpu) 64 else 32
         )
         if(aesInstruction) c.add(new AesPlugin)
 	if(extensions("Zkb"))                        c.add(new CryptoZkbPlugin)
@@ -147,7 +191,8 @@ object VexRiscvLitexSmpClusterCmdGen extends App {
       }},
       withExclusiveAndInvalidation = coherency,
       forcePeripheralWidth = !wishboneMemory,
-      outOfOrderDecoder = outOfOrderDecoder
+      outOfOrderDecoder = outOfOrderDecoder,
+      fpu = fpu
     ),
     liteDram = LiteDramNativeParameter(addressWidth = 32, dataWidth = liteDramWidth),
     liteDramMapping = SizeMapping(0x40000000l, 0x40000000l),
@@ -156,9 +201,12 @@ object VexRiscvLitexSmpClusterCmdGen extends App {
   )
 
   def dutGen = {
-    val toplevel = new VexRiscvLitexSmpCluster(
-      p = parameter
-    ).toComponent()
+    val toplevel = new Component {
+      val body = new VexRiscvLitexSmpCluster(
+        p = parameter
+      )
+      body.setName("")
+    }
     toplevel
   }
 
@@ -227,29 +275,31 @@ object VexRiscvLitexSmpClusterOpenSbi extends App{
   )
 
   def dutGen = {
-    val top = new VexRiscvLitexSmpCluster(
-      p = parameter
-    ).toComponent()
+    import GeneratorComponent.toGenerator
+    val top = new Component {
+      val body = new VexRiscvLitexSmpCluster(
+        p = parameter
+      )
+    }
     top.rework{
-      top.clintWishbone.setAsDirectionLess.allowDirectionLessIo
-      top.peripheral.setAsDirectionLess.allowDirectionLessIo.simPublic()
+      top.body.clintWishbone.setAsDirectionLess.allowDirectionLessIo
+      top.body.peripheral.setAsDirectionLess.allowDirectionLessIo.simPublic()
 
-      val hit = (top.peripheral.ADR <<2 >= 0xF0010000l && top.peripheral.ADR<<2 < 0xF0020000l)
-      top.clintWishbone.CYC := top.peripheral.CYC && hit
-      top.clintWishbone.STB := top.peripheral.STB
-      top.clintWishbone.WE := top.peripheral.WE
-      top.clintWishbone.ADR := top.peripheral.ADR.resized
-      top.clintWishbone.DAT_MOSI := top.peripheral.DAT_MOSI
-      top.peripheral.DAT_MISO := top.clintWishbone.DAT_MISO
-      top.peripheral.ACK := top.peripheral.CYC  && (!hit || top.clintWishbone.ACK)
-      top.peripheral.ERR := False
-
-//        top.dMemBridge.unburstified.cmd.simPublic()
+      val hit = (top.body.peripheral.ADR <<2 >= 0xF0010000l && top.body.peripheral.ADR<<2 < 0xF0020000l)
+      top.body.clintWishbone.CYC := top.body.peripheral.CYC && hit
+      top.body.clintWishbone.STB := top.body.peripheral.STB
+      top.body.clintWishbone.WE := top.body.peripheral.WE
+      top.body.clintWishbone.ADR := top.body.peripheral.ADR.resized
+      top.body.clintWishbone.DAT_MOSI := top.body.peripheral.DAT_MOSI
+      top.body.peripheral.DAT_MISO := top.body.clintWishbone.DAT_MISO
+      top.body.peripheral.ACK := top.body.peripheral.CYC  && (!hit || top.body.clintWishbone.ACK)
+      top.body.peripheral.ERR := False
     }
     top
   }
+  
   simConfig.compile(dutGen).doSimUntilVoid(seed = 42){dut =>
-    dut.debugCd.inputClockDomain.get.forkStimulus(10)
+    dut.body.debugCd.inputClockDomain.get.forkStimulus(10)
 
     val ram = SparseMemory()
     ram.loadBin(0x80000000l, "../opensbi/build/platform/spinal/vexriscv/sim/smp/firmware/fw_jump.bin")
@@ -258,16 +308,16 @@ object VexRiscvLitexSmpClusterOpenSbi extends App{
     ram.loadBin(0xC2000000l, "../buildroot/output/images/rootfs.cpio")
 
 
-    dut.iBridge.dram.simSlave(ram, dut.debugCd.inputClockDomain)
-    dut.dBridge.dram.simSlave(ram, dut.debugCd.inputClockDomain/*, dut.dMemBridge.unburstified*/)
+    dut.body.iBridge.dram.simSlave(ram, dut.body.debugCd.inputClockDomain)
+    dut.body.dBridge.dram.simSlave(ram, dut.body.debugCd.inputClockDomain/*, dut.body.dMemBridge.unburstified*/)
 
-    dut.interrupts.get #= 0
+    dut.body.interrupts #= 0
 
-    dut.debugCd.inputClockDomain.get.onFallingEdges{
-      if(dut.peripheral.CYC.toBoolean){
-        (dut.peripheral.ADR.toLong << 2) match {
-          case 0xF0000000l => print(dut.peripheral.DAT_MOSI.toLong.toChar)
-          case 0xF0000004l => dut.peripheral.DAT_MISO #= (if(System.in.available() != 0) System.in.read() else 0xFFFFFFFFl)
+    dut.body.debugCd.inputClockDomain.get.onFallingEdges{
+      if(dut.body.peripheral.CYC.toBoolean){
+        (dut.body.peripheral.ADR.toLong << 2) match {
+          case 0xF0000000l => print(dut.body.peripheral.DAT_MOSI.toLong.toChar)
+          case 0xF0000004l => dut.body.peripheral.DAT_MISO #= (if(System.in.available() != 0) System.in.read() else 0xFFFFFFFFl)
           case _ =>
         }
       }
