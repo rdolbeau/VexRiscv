@@ -117,6 +117,7 @@ object VexRiscvLitexSmpClusterCmdGen extends App {
   var aesInstruction = false
   var fpu = false
   var cpuPerFpu = 4
+  var rvc = false
   var extensions = Set("I", "M", "A")
   var netlistDirectory = "."
   var netlistName = "VexRiscvLitexSmpCluster"
@@ -139,6 +140,7 @@ object VexRiscvLitexSmpClusterCmdGen extends App {
     opt[String]("wishbone-memory" ) action { (v, c) => wishboneMemory = v.toBoolean  }
     opt[String]("fpu" ) action { (v, c) => fpu = v.toBoolean  }
     opt[String]("cpu-per-fpu") action { (v, c) => cpuPerFpu = v.toInt }
+    opt[String]("rvc") action { (v, c) => rvc = v.toBoolean }
   }.parse(args))
 
   val coherency = coherentDma || cpuCount > 1
@@ -161,7 +163,9 @@ object VexRiscvLitexSmpClusterCmdGen extends App {
           withFloat = fpu,
           withDouble = fpu,
           externalFpu = fpu,
-          loadStoreWidth = if(fpu) 64 else 32
+          loadStoreWidth = if(fpu) 64 else 32,
+          rvc = rvc,
+          injectorStage = rvc
         )
         if(aesInstruction) c.add(new AesPlugin)
 	if(extensions("Zkb"))                        c.add(new CryptoZkbPlugin)
