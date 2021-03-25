@@ -37,6 +37,21 @@ case class VexRiscvConfig(){
     }
   }
 
+  def withRvc = plugins.find(_.isInstanceOf[IBusFetcher]) match {
+    case Some(x) => x.asInstanceOf[IBusFetcher].withRvc
+    case None => false
+  }
+
+  def withRvf = find(classOf[FpuPlugin]) match {
+    case Some(x) => true
+    case None => false
+  }
+
+  def withRvd = find(classOf[FpuPlugin]) match {
+    case Some(x) => x.p.withDouble
+    case None => false
+  }
+
   //Default Stageables
   object IS_RVC extends Stageable(Bool)
   object BYPASSABLE_EXECUTE_STAGE   extends Stageable(Bool)
@@ -113,7 +128,7 @@ case class VexRiscvConfig(){
 
 
 
-object RVC_GEN extends PipelineThing[Boolean]
+
 class VexRiscv(val config : VexRiscvConfig) extends Component with Pipeline{
   type  T = VexRiscv
   import config._
@@ -141,8 +156,6 @@ class VexRiscv(val config : VexRiscvConfig) extends Component with Pipeline{
     memory.arbitration.removeIt.noBackendCombMerge
   }
   execute.arbitration.flushNext.noBackendCombMerge
-
-  this(RVC_GEN) = false
 }
 
 

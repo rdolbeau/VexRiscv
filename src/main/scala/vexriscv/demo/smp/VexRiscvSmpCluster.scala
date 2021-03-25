@@ -172,7 +172,7 @@ object VexRiscvSmpClusterGen {
                      iCacheWays : Int = 2,
                      dCacheWays : Int = 2,
                      iBusRelax : Boolean = false,
-                     injectorStage : Boolean = false,
+                     injectorStage : Boolean = true,
                      earlyBranch : Boolean = false,
                      dBusCmdMasterPipe : Boolean = false,
                      withMmu : Boolean = true,
@@ -181,7 +181,8 @@ object VexRiscvSmpClusterGen {
                      withDouble : Boolean = false,
                      externalFpu : Boolean = true,
                      simHalt : Boolean = false,
-                     regfileRead : RegFileReadKind = plugin.ASYNC
+                     regfileRead : RegFileReadKind = plugin.ASYNC,
+                     rvc : Boolean = true
                     ) = {
     assert(iCacheSize/iCacheWays <= 4096, "Instruction cache ways can't be bigger than 4096 bytes")
     assert(dCacheSize/dCacheWays <= 4096, "Data cache ways can't be bigger than 4096 bytes")
@@ -197,7 +198,7 @@ object VexRiscvSmpClusterGen {
         //Uncomment the whole IBusCachedPlugin and comment IBusSimplePlugin if you want cached iBus config
         new IBusCachedPlugin(
           resetVector = resetVector,
-          compressedGen = true,
+          compressedGen = rvc,
           prediction = vexriscv.plugin.NONE,
           historyRamSizeLog2 = 9,
           relaxPredictorAddress = true,
