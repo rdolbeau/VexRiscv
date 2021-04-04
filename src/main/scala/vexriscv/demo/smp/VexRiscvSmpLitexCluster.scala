@@ -116,7 +116,9 @@ object VexRiscvLitexSmpClusterCmdGen extends App {
   var outOfOrderDecoder = true
   var aesInstruction = false
   var fpu = false
-  var cpuPerFpu = 4
+  var fpu32 = false
+  var fpu64 = false
+  var cpuPerFpu = 2
   var rvc = false
   var extensions = Set("I", "M", "A")
   var netlistDirectory = "."
@@ -142,6 +144,11 @@ object VexRiscvLitexSmpClusterCmdGen extends App {
     opt[String]("cpu-per-fpu") action { (v, c) => cpuPerFpu = v.toInt }
     opt[String]("rvc") action { (v, c) => rvc = v.toBoolean }
   }.parse(args))
+  if(rvc) extensions ++= Set("C")
+  if(fpu) extensions ++= Set("F", "D") // --with-fpu means FD
+  if(extensions("C")) rvc = true
+  if(extensions("F")) fpu32 = true
+  if(extensions("D") && fpu32) fpu64 = true // fpu64 && !fpu32 should cause an error
 
   val coherency = coherentDma || cpuCount > 1
   def parameter = VexRiscvLitexSmpClusterParameter(
@@ -160,12 +167,14 @@ object VexRiscvLitexSmpClusterCmdGen extends App {
           coherency = coherency,
           iBusRelax = true,
           earlyBranch = true,
-          withFloat = fpu,
-          withDouble = fpu,
-          externalFpu = fpu,
-          loadStoreWidth = if(fpu) 64 else 32,
+          withFloat = fpu32,
+          withDouble = fpu64,
+          externalFpu = (fpu32 || fpu64),
+          loadStoreWidth = if(fpu64) 64 else 32,
           rvc = rvc,
-          injectorStage = rvc
+          injectorStage = rvc,
+	  rvb = extensions("B"),
+	  rvx = (extensions - ("A", "M", "I", "F", "D", "C", "B")).nonEmpty
         )
         if(aesInstruction) c.add(new AesPlugin)
 	if(extensions("Zkb"))                        c.add(new CryptoZkbPlugin)

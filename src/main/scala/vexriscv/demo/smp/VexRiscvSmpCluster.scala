@@ -172,7 +172,7 @@ object VexRiscvSmpClusterGen {
                      iCacheWays : Int = 2,
                      dCacheWays : Int = 2,
                      iBusRelax : Boolean = false,
-                     injectorStage : Boolean = true,
+                     injectorStage : Boolean = false,
                      earlyBranch : Boolean = false,
                      dBusCmdMasterPipe : Boolean = false,
                      withMmu : Boolean = true,
@@ -182,7 +182,9 @@ object VexRiscvSmpClusterGen {
                      externalFpu : Boolean = true,
                      simHalt : Boolean = false,
                      regfileRead : RegFileReadKind = plugin.ASYNC,
-                     rvc : Boolean = true
+                     rvc : Boolean = false,
+		     rvb : Boolean = false,
+		     rvx : Boolean = false
                     ) = {
     assert(iCacheSize/iCacheWays <= 4096, "Instruction cache ways can't be bigger than 4096 bytes")
     assert(dCacheSize/dCacheWays <= 4096, "Data cache ways can't be bigger than 4096 bytes")
@@ -283,7 +285,7 @@ object VexRiscvSmpClusterGen {
           mulUnrollFactor = 32,
           divUnrollFactor = 1
         ),
-        new CsrPlugin(CsrPluginConfig.openSbi(mhartid = hartId, misa = Riscv.misaToInt(s"ima${if(withFloat) "f" else ""}${if(withDouble) "d" else ""}s")).copy(utimeAccess = CsrAccess.READ_ONLY, mcycleAccess = CsrAccess.READ_ONLY, ucycleAccess = CsrAccess.READ_ONLY, minstretAccess = CsrAccess.READ_ONLY, uinstretAccess = CsrAccess.READ_ONLY)),
+        new CsrPlugin(CsrPluginConfig.openSbi(mhartid = hartId, misa = Riscv.misaToInt(s"ima${if(withFloat) "f" else ""}${if(withDouble) "d" else ""}${if(rvc) "c" else ""}${if(rvb) "b" else ""}${if(rvx) "x" else ""}s")).copy(utimeAccess = CsrAccess.READ_ONLY, mcycleAccess = CsrAccess.READ_ONLY, ucycleAccess = CsrAccess.READ_ONLY, minstretAccess = CsrAccess.READ_ONLY, uinstretAccess = CsrAccess.READ_ONLY)),
         new BranchPlugin(
           earlyBranch = earlyBranch,
           catchAddressMisaligned = true,
