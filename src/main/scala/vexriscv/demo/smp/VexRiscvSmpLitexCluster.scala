@@ -123,6 +123,8 @@ object VexRiscvLitexSmpClusterCmdGen extends App {
   var extensions = Set("I", "M", "A")
   var netlistDirectory = "."
   var netlistName = "VexRiscvLitexSmpCluster"
+  var iTlbSize = 4
+  var dTlbSize = 4
   assert(new scopt.OptionParser[Unit]("VexRiscvLitexSmpClusterCmdGen") {
     help("help").text("prints this usage text")
     opt[Unit]("coherent-dma") action { (v, c) => coherentDma = true }
@@ -143,6 +145,8 @@ object VexRiscvLitexSmpClusterCmdGen extends App {
     opt[String]("fpu" ) action { (v, c) => fpu = v.toBoolean  }
     opt[String]("cpu-per-fpu") action { (v, c) => cpuPerFpu = v.toInt }
     opt[String]("rvc") action { (v, c) => rvc = v.toBoolean }
+    opt[String]("itlb-size") action { (v, c) => iTlbSize = v.toInt }
+    opt[String]("dtlb-size") action { (v, c) => dTlbSize = v.toInt }
   }.parse(args))
   if(rvc) extensions ++= Set("C")
   if(fpu) extensions ++= Set("F", "D") // --with-fpu means FD
@@ -174,7 +178,9 @@ object VexRiscvLitexSmpClusterCmdGen extends App {
           rvc = rvc,
           injectorStage = rvc,
 	  rvb = extensions("B"),
-	  rvx = (extensions - ("A", "M", "I", "F", "D", "C", "B")).nonEmpty
+	  rvx = (extensions - ("A", "M", "I", "F", "D", "C", "B")).nonEmpty,
+	  iTlbSize = iTlbSize,
+	  dTlbSize = dTlbSize
         )
         if(aesInstruction) c.add(new AesPlugin)
 	if(extensions("Zkb"))                        c.add(new CryptoZkbPlugin)
