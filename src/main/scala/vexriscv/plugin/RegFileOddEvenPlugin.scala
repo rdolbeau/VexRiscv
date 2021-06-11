@@ -63,15 +63,14 @@ class RegFileOddEvenPlugin(regFileReadyKind : RegFileReadKind,
       })
     }
 
-    val notAES = (AES32ZKNE =/= decode.input(INSTRUCTION).asBits) && (SM4ZKS =/= decode.input(INSTRUCTION).asBits)
-    val rdIndex = ((notAES) ? (decode.input(INSTRUCTION)(rdRange)) | (decode.input(INSTRUCTION)(rs1Range)))
+    val rdIndex = decode.input(INSTRUCTION)(rdRange)
 
     //Disable rd0 write in decoding stage
     when(rdIndex === 0) {
       decode.input(REGFILE_WRITE_VALID) := False
       decode.input(REGFILE_WRITE_VALID_ODD) := False
     }
-    if(rv32e) when(decode.input(INSTRUCTION)(rdRange.head)) { // fixme for AES?
+    if(rv32e) when(decode.input(INSTRUCTION)(rdRange.head)) {
       decode.input(REGFILE_WRITE_VALID) := False
       decode.input(REGFILE_WRITE_VALID_ODD) := False
     }
@@ -115,8 +114,7 @@ class RegFileOddEvenPlugin(regFileReadyKind : RegFileReadKind,
     writeStage plug new Area {
       import writeStage._
 
-      val notAES = (AES32ZKNE =/= output(INSTRUCTION).asBits) && (SM4ZKS =/= output(INSTRUCTION).asBits)
-      val rdIndex = ((notAES) ? (output(INSTRUCTION)(clipRange(rdRange))) | (output(INSTRUCTION)(clipRange(rs1Range))))
+      val rdIndex = output(INSTRUCTION)(clipRange(rdRange))
 
       def shadowPrefix(that : Bits) = if(withShadow) global.shadow.write ## that else that
       val regFileWriteEven = global.regFileEven.writePort.addAttribute(Verilator.public).setName("lastStageRegFileWrite")

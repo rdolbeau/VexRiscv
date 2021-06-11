@@ -10,7 +10,7 @@ import spinal.lib.sim.SparseMemory
 import vexriscv.demo.smp.VexRiscvSmpClusterGen.vexRiscvConfig
 import vexriscv.ip.fpu.{FpuCore, FpuParameter}
 import vexriscv.plugin.{AesPlugin, DBusCachedPlugin, FpuPlugin}
-import vexriscv.plugin.{CryptoZkbPlugin, CryptoZkndPlugin, CryptoZknePlugin, CryptoZknhPlugin, CryptoZksPlugin}
+import vexriscv.plugin.{CryptoZbkbPlugin, CryptoZbkxPlugin, CryptoZbkcPlugin, CryptoZkndPlugin, CryptoZknePlugin, CryptoZknhPlugin, CryptoZksPlugin}
 import vexriscv.plugin.{BitManipBFPOnlyPlugin, BitManipZbaPlugin, BitManipZbbPlugin, BitManipZbbZbpPlugin, BitManipZbcPlugin, BitManipZbe1cyclePlugin, BitManipZbe2cyclesPlugin, BitManipZbfPlugin, BitManipZbpPlugin, BitManipZbrPlugin, BitManipZbsPlugin, BitManipZbtPlugin}
 import vexriscv.plugin.{PackedSIMDBasePlugin, PackedSIMDSlowPlugin, PackedSIMDWidePlugin}
 
@@ -182,17 +182,21 @@ object VexRiscvLitexSmpClusterCmdGen extends App {
 	  iTlbSize = iTlbSize,
 	  dTlbSize = dTlbSize
         )
-        if(aesInstruction) c.add(new AesPlugin)
-	if(extensions("Zkb"))                        c.add(new CryptoZkbPlugin)
-	
+	if(extensions("B"))   extensions ++= Set("Zba", "Zbb", "Zbc", "Zbe", "Zbf", "Zbp", "Zbs")
 	if(extensions("Zkn")) extensions ++= Set("Zknd", "Zkne", "Zknh")
+
+        if(aesInstruction) c.add(new AesPlugin)
+	// warning, plenty of overlapping not properly handled between Zbkb and non-Zbp subsets
+	if(extensions("Zbkb") && !extensions("Zbp") && !(extensions("Zbb") && (extensions("Zbc") || extensions("Zbf")))) c.add(new CryptoZbkbPlugin)
+	if(extensions("Zbkc") && !extensions("Zbc")) c.add(new CryptoZbkcPlugin)
+	if(extensions("Zbkx") && !extensions("Zbp")) c.add(new CryptoZbkxPlugin)
+	
 	if(extensions("Zknd"))                       c.add(new CryptoZkndPlugin(earlyInjection = false))
 	if(extensions("Zkne"))                       c.add(new CryptoZknePlugin(earlyInjection = false))
 	if(extensions("Zknh"))                       c.add(new CryptoZknhPlugin)
 
 	if(extensions("Zks"))                        c.add(new CryptoZksPlugin(earlyInjection = false))
 
-	if(extensions("B"))   extensions ++= Set("Zba", "Zbb", "Zbc", "Zbe", "Zbf", "Zbp", "Zbs")
 	if(extensions("Zba"))                        c.add(new BitManipZbaPlugin)
 	if(extensions("Zbb") && !extensions("Zbp"))  c.add(new BitManipZbbPlugin)
 	if(extensions("Zbb") && extensions("Zbp"))   c.add(new BitManipZbbZbpPlugin)
